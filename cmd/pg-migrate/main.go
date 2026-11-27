@@ -2,8 +2,10 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -187,9 +189,14 @@ func cmdUp(ctx context.Context, args []string) error {
 }
 
 func cmdStatus(ctx context.Context, args []string) error {
+	return runStatus(ctx, args, os.Stdout)
+}
+
+func runStatus(ctx context.Context, args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("status", flag.ContinueOnError)
 	configPath := fs.String("config", "databases.yaml", "Path ke file konfigurasi databases.yaml")
 	dbSelector := fs.String("db", "all", "Nama database target ('all' atau daftar dipisah koma, mis. db_name)")
+	jsonOut := fs.Bool("json", false, "Keluarkan status migrasi dalam format JSON ke stdout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -200,6 +207,10 @@ func cmdStatus(ctx context.Context, args []string) error {
 	}
 
 	hasMismatch := false
+	report := statusReportJSON{
+		Databases: make([]statusDBJSON, 0, len(resolved)),
+	}
+
 	for _, rdb := range resolved {
 		dsn := rdb.DSN
 		res, stErr := runner.Status(ctx, func(c context.Context) (runner.Store, error) {
@@ -215,14 +226,23 @@ func cmdStatus(ctx context.Context, args []string) error {
 			return stErr
 		}
 
-		fmt.Printf("\n=== Status Database: %s (actual: %s) ===\n", res.DBName, res.ActualDBName)
-		fmt.Printf("Ringkasan: applied=%d, pending=%d, mismatch=%d, db_only=%d\n",
+		if res.Mismatch > 0 {
+			hasMismatch = true
+		}
+
+		if *jsonOut {
+			report.Databases = append(report.Databases, toStatusDBJSON(res))
+			continue
+		}
+
+		fmt.Fprintf(out, "\n=== Status Database: %s (actual: %s) ===\n", res.DBName, res.ActualDBName)
+		fmt.Fprintf(out, "Ringkasan: applied=%d, pending=%d, mismatch=%d, db_only=%d\n",
 			res.AppliedCount, res.PendingCount, res.Mismatch, res.DBOnlyCount)
 
 		if len(res.Items) == 0 {
-			fmt.Println("(belum ada file migrasi maupun riwayat di database)")
+			fmt.Fprintln(out, "(belum ada file migrasi maupun riwayat di database)")
 		} else {
-			tw := tabwriter.NewWriter(os.Stdout, 0, 4, 2, ' ', 0)
+			tw := tabwriter.NewWriter(out, 0, 4, 2, ' ', 0)
 			_, _ = fmt.Fprintln(tw, "STATE\tVERSION\tSERVICE\tFILENAME\tAPPLIED_AT\tTRIGGERED_BY\tNOTE")
 			for _, item := range res.Items {
 				appliedAt := "-"
@@ -243,9 +263,13 @@ func cmdStatus(ctx context.Context, args []string) error {
 			_ = tw.Flush()
 		}
 
-		printLintSummary(res.LintIssues)
-		if res.Mismatch > 0 {
-			hasMismatch = true
+		writeLintSummary(out, res.LintIssues)
+	}
+
+	if *jsonOut {
+		report.HasMismatch = hasMismatch
+		if err := writeJSON(out, report); err != nil {
+			return err
 		}
 	}
 
@@ -256,10 +280,15 @@ func cmdStatus(ctx context.Context, args []string) error {
 }
 
 func cmdValidate(args []string) error {
+	return runValidate(args, os.Stdout)
+}
+
+func runValidate(args []string, out io.Writer) error {
 	fs := flag.NewFlagSet("validate", flag.ContinueOnError)
 	configPath := fs.String("config", "databases.yaml", "Path ke file konfigurasi databases.yaml")
 	dbSelector := fs.String("db", "all", "Nama database target ('all' atau daftar dipisah koma, mis. db_name)")
 	strict := fs.Bool("strict", false, "Perlakukan WARNING linter sebagai ERROR")
+	jsonOut := fs.Bool("json", false, "Keluarkan hasil validasi dalam format JSON ke stdout")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
@@ -276,6 +305,10 @@ func cmdValidate(args []string) error {
 	totalFiles := 0
 	totalErrors := 0
 	totalWarnings := 0
+	report := validateReportJSON{
+		Databases: make([]validateDBJSON, 0, len(selected)),
+		Strict:    *strict,
+	}
 
 	for _, db := range selected {
 		baseDir := cfg.ResolveDir(db)
@@ -293,20 +326,43 @@ func cmdValidate(args []string) error {
 
 		issues := migration.LintAll(files)
 		for _, iss := range issues {
-			fmt.Printf("[%s] %s\n", db.Name, iss.String())
+			if !*jsonOut {
+				fmt.Fprintf(out, "[%s] %s\n", db.Name, iss.String())
+			}
 			if iss.Severity == migration.SeverityError {
 				totalErrors++
 			} else {
 				totalWarnings++
 			}
 		}
-		fmt.Printf("OK [%s]: %d file migrasi terverifikasi (baseline=%v)\n", db.Name, len(migs), baseline != nil)
+
+		if *jsonOut {
+			report.Databases = append(report.Databases, validateDBJSON{
+				DBName:          db.Name,
+				BaselinePresent: baseline != nil,
+				MigrationCount:  len(migs),
+				Issues:          toLintIssueJSON(issues),
+			})
+		} else {
+			fmt.Fprintf(out, "OK [%s]: %d file migrasi terverifikasi (baseline=%v)\n", db.Name, len(migs), baseline != nil)
+		}
 	}
 
-	fmt.Printf("\nValidasi selesai: %d database, %d file diperiksa, %d error, %d warning.\n",
-		len(selected), totalFiles, totalErrors, totalWarnings)
+	passed := !(totalErrors > 0 || (*strict && totalWarnings > 0))
+	if *jsonOut {
+		report.TotalFiles = totalFiles
+		report.ErrorCount = totalErrors
+		report.WarningCount = totalWarnings
+		report.Passed = passed
+		if err := writeJSON(out, report); err != nil {
+			return err
+		}
+	} else {
+		fmt.Fprintf(out, "\nValidasi selesai: %d database, %d file diperiksa, %d error, %d warning.\n",
+			len(selected), totalFiles, totalErrors, totalWarnings)
+	}
 
-	if totalErrors > 0 || (*strict && totalWarnings > 0) {
+	if !passed {
 		return fmt.Errorf("validasi gagal (errors=%d, warnings=%d, strict=%v)", totalErrors, totalWarnings, *strict)
 	}
 	return nil
@@ -474,9 +530,116 @@ func loadAndResolve(configPath, dbSelector *string) (*config.Config, []config.Da
 	return cfg, selected, resolved, nil
 }
 
-func printLintSummary(issues []migration.Issue) {
+type lintIssueJSON struct {
+	Severity string `json:"severity"`
+	Rule     string `json:"rule"`
+	File     string `json:"file"`
+	Message  string `json:"message"`
+}
+
+type validateDBJSON struct {
+	DBName          string          `json:"dbName"`
+	BaselinePresent bool            `json:"baselinePresent"`
+	MigrationCount  int             `json:"migrationCount"`
+	Issues          []lintIssueJSON `json:"issues"`
+}
+
+type validateReportJSON struct {
+	Databases    []validateDBJSON `json:"databases"`
+	TotalFiles   int              `json:"totalFiles"`
+	ErrorCount   int              `json:"errorCount"`
+	WarningCount int              `json:"warningCount"`
+	Strict       bool             `json:"strict"`
+	Passed       bool             `json:"passed"`
+}
+
+type statusItemJSON struct {
+	State       string  `json:"state"`
+	Version     string  `json:"version"`
+	Filename    string  `json:"filename"`
+	Service     string  `json:"service"`
+	AppliedAt   *string `json:"appliedAt,omitempty"`
+	ExecutionMS int64   `json:"executionMs"`
+	TriggeredBy string  `json:"triggeredBy,omitempty"`
+	GitBranch   string  `json:"gitBranch,omitempty"`
+	Note        string  `json:"note,omitempty"`
+}
+
+type statusDBJSON struct {
+	DBName        string           `json:"dbName"`
+	ActualDBName  string           `json:"actualDbName"`
+	AppliedCount  int              `json:"appliedCount"`
+	PendingCount  int              `json:"pendingCount"`
+	MismatchCount int              `json:"mismatchCount"`
+	DBOnlyCount   int              `json:"dbOnlyCount"`
+	Items         []statusItemJSON `json:"items"`
+	LintIssues    []lintIssueJSON  `json:"lintIssues"`
+}
+
+type statusReportJSON struct {
+	Databases   []statusDBJSON `json:"databases"`
+	HasMismatch bool           `json:"hasMismatch"`
+}
+
+func toLintIssueJSON(issues []migration.Issue) []lintIssueJSON {
+	out := make([]lintIssueJSON, 0, len(issues))
 	for _, iss := range issues {
-		fmt.Printf("LINT %s\n", iss.String())
+		out = append(out, lintIssueJSON{
+			Severity: iss.Severity,
+			Rule:     iss.Rule,
+			File:     iss.File,
+			Message:  iss.Message,
+		})
+	}
+	return out
+}
+
+func toStatusDBJSON(res runner.StatusResult) statusDBJSON {
+	items := make([]statusItemJSON, 0, len(res.Items))
+	for _, item := range res.Items {
+		var appliedAtPtr *string
+		if item.AppliedAt != nil && !item.AppliedAt.IsZero() {
+			formatted := item.AppliedAt.UTC().Format(time.RFC3339)
+			appliedAtPtr = &formatted
+		}
+		items = append(items, statusItemJSON{
+			State:       string(item.State),
+			Version:     item.Version,
+			Filename:    item.Filename,
+			Service:     item.Service,
+			AppliedAt:   appliedAtPtr,
+			ExecutionMS: item.ExecutionMS,
+			TriggeredBy: item.TriggeredBy,
+			GitBranch:   item.GitBranch,
+			Note:        item.Note,
+		})
+	}
+
+	return statusDBJSON{
+		DBName:        res.DBName,
+		ActualDBName:  res.ActualDBName,
+		AppliedCount:  res.AppliedCount,
+		PendingCount:  res.PendingCount,
+		MismatchCount: res.Mismatch,
+		DBOnlyCount:   res.DBOnlyCount,
+		Items:         items,
+		LintIssues:    toLintIssueJSON(res.LintIssues),
+	}
+}
+
+func writeJSON(w io.Writer, v any) error {
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	return enc.Encode(v)
+}
+
+func printLintSummary(issues []migration.Issue) {
+	writeLintSummary(os.Stdout, issues)
+}
+
+func writeLintSummary(w io.Writer, issues []migration.Issue) {
+	for _, iss := range issues {
+		fmt.Fprintf(w, "LINT %s\n", iss.String())
 	}
 }
 

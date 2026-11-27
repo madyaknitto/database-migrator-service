@@ -50,6 +50,7 @@ Membandingkan daftar file lokal (`baseline/` dan `migrations/`) terhadap tabel t
 |---|---|---|
 | `--config` | `databases.yaml` | Path ke file konfigurasi |
 | `--db` | `all` | Target database (`all` atau daftar dipisah koma) |
+| `--json` | `false` | Keluarkan hasil status dalam format JSON bersih ke `stdout` (error tetap ditulis ke `stderr` dengan exit code `1`) |
 
 ### Arti Nilai `STATE`
 
@@ -73,6 +74,7 @@ Menjalankan pemeriksaan struktur folder, validasi nama file, parsing directive h
 | `--config` | `databases.yaml` | Path ke file konfigurasi |
 | `--db` | `all` | Target database (`all` atau daftar dipisah koma) |
 | `--strict` | `false` | Menjadikan `WARNING` sebagai `ERROR` (exit code `1`) |
+| `--json` | `false` | Keluarkan laporan validasi dalam format JSON bersih ke `stdout` (tetap mengembalikan exit code `1` bila `passed=false`) |
 
 ---
 
