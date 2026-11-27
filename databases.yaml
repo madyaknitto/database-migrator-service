@@ -1,0 +1,17 @@
+version: 1
+
+defaults:
+  tracking_schema: public
+  tracking_table: schema_migrations
+  lock_timeout: 5s
+  statement_timeout: 60s
+  lock_wait_timeout: 120s
+
+databases:
+  - name: db_name
+    database: db_name
+    # database_env: POSTGRES_DB_NAME
+    # dsn_env: POSTGRES_DSN_DB_NAME
+    dir: databases/db_name
+    description: Database utama aplikasi PostgreSQL
+    enabled: true

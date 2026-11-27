@@ -1,0 +1,17 @@
+# Environment files (kecuali .env.example)
+.env
+.env.*
+!.env.example
+
+# Build artifacts & binaries
+bin/
+dist/
+*.exe
+*.out
+coverage.out
+
+# OS & Editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

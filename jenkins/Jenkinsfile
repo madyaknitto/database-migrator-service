@@ -1,0 +1,157 @@
+// Jenkinsfile terpusat untuk job: database-migrator-service-run
+// Dipanggil secara manual maupun otomatis sebagai tahap pre-deploy dari setiap repository backend.
+
+pipeline {
+    agent any
+
+    options {
+        timestamps()
+        ansiColor('xterm')
+        disableConcurrentBuilds(abortPrevious: false)
+    }
+
+    parameters {
+        choice(
+            name: 'TARGET_ENV',
+            choices: ['staging', 'production'],
+            description: 'Environment database target (menentukan branch database-migrator-service & kredensial PostgreSQL yang dipakai)'
+        )
+        string(
+            name: 'TARGET_DB',
+            defaultValue: 'all',
+            trim: true,
+            description: "Target database di databases.yaml ('all' atau daftar dipisah koma, mis. db_name)"
+        )
+        choice(
+            name: 'ACTION',
+            choices: ['up', 'dry-run', 'status', 'validate', 'baseline'],
+            description: 'Aksi yang akan dijalankan pg-migrate'
+        )
+        string(
+            name: 'TRIGGERED_BY',
+            defaultValue: 'manual',
+            trim: true,
+            description: 'Nama job backend / user pemicu (otomatis terisi saat dipanggil dari job backend)'
+        )
+        booleanParam(
+            name: 'STRICT_LINT',
+            defaultValue: false,
+            description: 'Jadikan WARNING SQL linter sebagai ERROR (memblokir eksekusi)'
+        )
+    }
+
+    environment {
+        // Sesuaikan URL repository database-migrator-service milik organisasi Anda:
+        MIGRATIONS_REPO         = 'https://github.com/madyaknitto/database-migrator-service.git'
+        MIGRATIONS_REPO_CRED_ID = 'git-database-migrator-service-readonly'
+    }
+
+    stages {
+        stage('Resolve Environment & Checkout') {
+            steps {
+                script {
+                    env.TARGET_BRANCH     = (params.TARGET_ENV == 'production') ? 'production' : 'staging'
+                    env.POSTGRES_HOST_CRED = (params.TARGET_ENV == 'production') ? 'postgres-host-production' : 'postgres-host-staging'
+                    env.POSTGRES_AUTH_CRED = (params.TARGET_ENV == 'production') ? 'postgres-migrator-production' : 'postgres-migrator-staging'
+                    env.POSTGRES_PORT_VAL  = '5432'
+                    env.POSTGRES_SSL_VAL   = (params.TARGET_ENV == 'production') ? 'require' : 'disable'
+                }
+
+                echo "Checkout database-migrator-service branch '${env.TARGET_BRANCH}' untuk env '${params.TARGET_ENV}' (triggered_by=${params.TRIGGERED_BY})"
+
+                checkout([
+                    $class: 'GitSCM',
+                    branches: [[name: "*/${env.TARGET_BRANCH}"]],
+                    doGenerateSubmoduleConfigurations: false,
+                    extensions: [[$class: 'CleanBeforeCheckout']],
+                    userRemoteConfigs: [[
+                        url: env.MIGRATIONS_REPO,
+                        credentialsId: env.MIGRATIONS_REPO_CRED_ID
+                    ]]
+                ])
+
+                script {
+                    env.RESOLVED_GIT_COMMIT = sh(script: 'git rev-parse HEAD', returnStdout: true).trim()
+                }
+            }
+        }
+
+        stage('Build pg-migrate Runner') {
+            steps {
+                sh '''
+                    set -euo pipefail
+                    mkdir -p .bin
+                    if command -v go >/dev/null 2>&1; then
+                        CGO_ENABLED=0 go build -trimpath -o .bin/pg-migrate ./cmd/pg-migrate
+                    else
+                        docker run --rm \
+                            -v "$(pwd)":/src -w /src \
+                            -e CGO_ENABLED=0 -e GOOS=linux -e GOARCH=amd64 \
+                            golang:1.23-alpine \
+                            go build -trimpath -o .bin/pg-migrate ./cmd/pg-migrate
+                    fi
+                    ./.bin/pg-migrate version
+                '''
+            }
+        }
+
+        stage('Validate SQL & Linter') {
+            steps {
+                script {
+                    def strictFlag = params.STRICT_LINT ? '--strict' : ''
+                    sh "./.bin/pg-migrate validate --config=databases.yaml --db='${params.TARGET_DB}' ${strictFlag}"
+                }
+            }
+        }
+
+        stage('Execute Database Action') {
+            when {
+                expression { return params.ACTION != 'validate' }
+            }
+            steps {
+                withCredentials([
+                    string(credentialsId: env.POSTGRES_HOST_CRED, variable: 'POSTGRES_HOST'),
+                    usernamePassword(
+                        credentialsId: env.POSTGRES_AUTH_CRED,
+                        usernameVariable: 'POSTGRES_USER',
+                        passwordVariable: 'POSTGRES_PASSWORD'
+                    )
+                ]) {
+                    script {
+                        env.POSTGRES_PORT    = env.POSTGRES_PORT_VAL
+                        env.POSTGRES_SSLMODE = env.POSTGRES_SSL_VAL
+
+                        def strictFlag = params.STRICT_LINT ? '--strict' : ''
+                        def metaFlags = "--triggered-by='${params.TRIGGERED_BY}' --git-branch='${env.TARGET_BRANCH}' --git-commit='${env.RESOLVED_GIT_COMMIT}'"
+
+                        switch (params.ACTION) {
+                            case 'up':
+                                sh "./.bin/pg-migrate up --config=databases.yaml --db='${params.TARGET_DB}' ${strictFlag} ${metaFlags}"
+                                break
+                            case 'dry-run':
+                                sh "./.bin/pg-migrate up --config=databases.yaml --db='${params.TARGET_DB}' --dry-run ${strictFlag} ${metaFlags}"
+                                break
+                            case 'status':
+                                sh "./.bin/pg-migrate status --config=databases.yaml --db='${params.TARGET_DB}'"
+                                break
+                            case 'baseline':
+                                sh "./.bin/pg-migrate baseline --config=databases.yaml --db='${params.TARGET_DB}' ${metaFlags}"
+                                break
+                            default:
+                                error("ACTION tidak dikenal: ${params.ACTION}")
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    post {
+        always {
+            sh 'rm -rf .bin'
+        }
+        failure {
+            echo "GAGAL menjalankan database-migrator-service (${params.ACTION}) pada env ${params.TARGET_ENV}."
+        }
+    }
+}
