@@ -21,7 +21,7 @@ flowchart TD
     end
 
     subgraph REPO["Central Repo: database-migrator-service"]
-        BR["Branch Target (staging / production)"]
+        BR["Branch Target (development / staging / production)"]
         CFG["Registry: databases.yaml"]
         SQL["Folder SQL: databases/db_name/migrations/"]
         BR --> CFG

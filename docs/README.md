@@ -39,3 +39,4 @@ Dokumentasi internal mendokumentasikan keputusan arsitektur, batasan transaksi/l
 - [01 · Adopting existing databases (Baseline)](./operations/01_existing-db-adoption.md)
 - [02 · Jenkins CI/CD setup](./operations/02_jenkins-setup.md)
 - [03 · Troubleshooting & incident recovery](./operations/03_troubleshooting.md)
+- [04 · Reset & refresh development/staging from production](./operations/04_env-reset-and-refresh.md)

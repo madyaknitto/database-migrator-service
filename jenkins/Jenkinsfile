@@ -13,7 +13,7 @@ pipeline {
     parameters {
         choice(
             name: 'TARGET_ENV',
-            choices: ['staging', 'production'],
+            choices: ['development', 'staging', 'production'],
             description: 'Environment database target (menentukan branch database-migrator-service & kredensial PostgreSQL yang dipakai)'
         )
         string(
@@ -50,11 +50,29 @@ pipeline {
         stage('Resolve Environment & Checkout') {
             steps {
                 script {
-                    env.TARGET_BRANCH     = (params.TARGET_ENV == 'production') ? 'production' : 'staging'
-                    env.POSTGRES_HOST_CRED = (params.TARGET_ENV == 'production') ? 'postgres-host-production' : 'postgres-host-staging'
-                    env.POSTGRES_AUTH_CRED = (params.TARGET_ENV == 'production') ? 'postgres-migrator-production' : 'postgres-migrator-staging'
-                    env.POSTGRES_PORT_VAL  = '5432'
-                    env.POSTGRES_SSL_VAL   = (params.TARGET_ENV == 'production') ? 'require' : 'disable'
+                    switch (params.TARGET_ENV) {
+                        case 'development':
+                            env.TARGET_BRANCH      = 'development'
+                            env.POSTGRES_HOST_CRED = 'postgres-host-development'
+                            env.POSTGRES_AUTH_CRED = 'postgres-migrator-development'
+                            env.POSTGRES_SSL_VAL   = 'disable'
+                            break
+                        case 'staging':
+                            env.TARGET_BRANCH      = 'staging'
+                            env.POSTGRES_HOST_CRED = 'postgres-host-staging'
+                            env.POSTGRES_AUTH_CRED = 'postgres-migrator-staging'
+                            env.POSTGRES_SSL_VAL   = 'disable'
+                            break
+                        case 'production':
+                            env.TARGET_BRANCH      = 'production'
+                            env.POSTGRES_HOST_CRED = 'postgres-host-production'
+                            env.POSTGRES_AUTH_CRED = 'postgres-migrator-production'
+                            env.POSTGRES_SSL_VAL   = 'require'
+                            break
+                        default:
+                            error("TARGET_ENV tidak dikenal: ${params.TARGET_ENV}")
+                    }
+                    env.POSTGRES_PORT_VAL = '5432'
                 }
 
                 echo "Checkout database-migrator-service branch '${env.TARGET_BRANCH}' untuk env '${params.TARGET_ENV}' (triggered_by=${params.TRIGGERED_BY})"
@@ -63,7 +81,7 @@ pipeline {
                     $class: 'GitSCM',
                     branches: [[name: "*/${env.TARGET_BRANCH}"]],
                     doGenerateSubmoduleConfigurations: false,
-                    extensions: [[$class: 'CleanBeforeCheckout']],
+                    extensions: [[$class: 'CleanBeforeCheckout'], [$class: 'PruneStaleBranch']],
                     userRemoteConfigs: [[
                         url: env.MIGRATIONS_REPO,
                         credentialsId: env.MIGRATIONS_REPO_CRED_ID

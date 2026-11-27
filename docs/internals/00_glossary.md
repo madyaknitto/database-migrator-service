@@ -31,4 +31,4 @@ Daftar istilah inti yang digunakan di seluruh kode sumber dan dokumentasi `datab
 | **Tracking Table** | Tabel riwayat migrasi di tiap database target (default `public.schema_migrations`) berisi `version`, `filename`, `checksum`, metadata git/pemicu, dan durasi eksekusi. |
 | **Checksum (SHA-256)** | Hash SHA-256 dari isi SQL yang line ending-nya sudah dinormalisasi (`\r\n` dan `\r` → `\n`) untuk mendeteksi modifikasi file yang sudah dieksekusi. |
 | **Directive (`-- migrate:*`)** | Anotasi komentar di bagian header file SQL sebelum statement pertama untuk mengatur service, tiket, mode transaksi, timeout, atau izin DDL destruktif/blocking. |
-| **DB_ONLY (`APPLIED_IN_DB_NOT_IN_BRANCH`)** | Kondisi saat sebuah versi sudah tercatat di database (mis. dari fitur lain di `staging`), tetapi file-nya tidak ada di branch yang sedang dijalankan. |
+| **DB_ONLY (`APPLIED_IN_DB_NOT_IN_BRANCH`)** | Kondisi saat sebuah versi sudah tercatat di database (mis. dari fitur lain di `development`/`staging`), tetapi file-nya tidak ada di branch yang sedang dijalankan. |

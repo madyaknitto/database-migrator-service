@@ -60,7 +60,7 @@ Membandingkan daftar file lokal (`baseline/` dan `migrations/`) terhadap tabel t
 | `APPLIED` | File migrasi sudah dieksekusi di DB dengan checksum SHA-256 yang sama |
 | `PENDING` | File migrasi ada di branch ini dan belum pernah dieksekusi di DB |
 | `CHECKSUM_MISMATCH` | File yang sudah tercatat di DB mengalami perubahan isi (perintah `status` akan keluar dengan error) |
-| `DB_ONLY` | Versi sudah tercatat di DB, tetapi file-nya tidak ada di branch saat ini (normal pada `staging` multi-branch) |
+| `DB_ONLY` | Versi sudah tercatat di DB, tetapi file-nya tidak ada di branch saat ini (normal pada `development`/`staging` multi-branch) |
 
 ---
 

@@ -40,7 +40,7 @@ databases:
 |---|---|---|
 | `name` | Ya | Identifier logis untuk CLI `--db`. Unik, tidak boleh `all`, pola `^[a-zA-Z0-9_-]+$`. |
 | `database` | Ya *(kecuali `dsn_env` selalu terisi)* | Nama database PostgreSQL aktual di server. |
-| `database_env` | Tidak | Nama environment variable untuk meng-override nama database aktual per environment (mis. `db_name_staging`). |
+| `database_env` | Tidak | Nama environment variable untuk meng-override nama database aktual per environment (mis. `db_name_dev` / `db_name_staging`). |
 | `dsn_env` | Tidak | Nama environment variable berisi full DSN PostgreSQL jika database berada di server terpisah. |
 | `dir` | Ya | Path direktori berisi subfolder `baseline/` dan `migrations/` (relatif terhadap lokasi `databases.yaml` atau absolut). |
 | `description` | Tidak | Catatan deskriptif kegunaan database. |

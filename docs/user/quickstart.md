@@ -47,7 +47,7 @@ go run ./cmd/pg-migrate baseline --db=all --apply-sql
 go run ./cmd/pg-migrate status --db=all
 ```
 
-> **Penting:** Gunakan `--apply-sql` **hanya** pada database lokal/kosong. Untuk database staging & production yang sudah punya tabel, baca [Adopsi Database Existing](../operations/01_existing-db-adoption.md).
+> **Penting:** Gunakan `--apply-sql` **hanya** pada database lokal/baru yang masih kosong. Untuk database `development`, `staging` & `production` yang sudah punya tabel, baca [Adopsi Database Existing](../operations/01_existing-db-adoption.md).
 
 ## 3. Opsi B: Full Docker (Tanpa Install Go di Host)
 

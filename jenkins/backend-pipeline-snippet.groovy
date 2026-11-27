@@ -12,7 +12,7 @@ pipeline {
     agent any
 
     parameters {
-        choice(name: 'TARGET_ENV', choices: ['staging', 'production'], description: 'Environment deploy target')
+        choice(name: 'TARGET_ENV', choices: ['development', 'staging', 'production'], description: 'Environment deploy target')
     }
 
     stages {

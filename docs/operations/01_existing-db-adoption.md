@@ -1,12 +1,12 @@
 # Runbook: Adopting Existing Databases (Baseline)
 
-Gunakan runbook ini **sekali saja** saat mengadopsi database PostgreSQL `staging` dan `production` yang sudah memiliki tabel berjalan agar `database-migrator-service` bisa mulai mengelola migrasi incremental tanpa mengganggu data maupun tabel lama.
+Gunakan runbook ini **sekali saja** saat mengadopsi database PostgreSQL `development`, `staging`, dan `production` yang sudah memiliki tabel berjalan agar `database-migrator-service` bisa mulai mengelola migrasi incremental tanpa mengganggu data maupun tabel lama.
 
 ## Prasyarat
 
-- Akses superuser/DBA ke database PostgreSQL `staging` dan `production` untuk menyiapkan role dan privileges awal.
+- Akses superuser/DBA ke database PostgreSQL `development`, `staging`, dan `production` untuk menyiapkan role dan privileges awal.
 - `pg_dump` terpasang di mesin yang mengambil snapshot skema produksi.
-- Branch `main`, `staging`, dan `production` sudah tersedia di repository Git.
+- Branch `main`, `development`, `staging`, dan `production` sudah tersedia di repository Git.
 
 ## Langkah 1: Siapkan Role & Default Privileges di PostgreSQL
 
@@ -38,11 +38,11 @@ POSTGRES_PASSWORD='***' \
 
 *(Jika nama entri di `databases.yaml` berbeda dengan nama database PostgreSQL aktual, berikan argumen kedua: `./scripts/dump-baseline.sh <nama_entri> <actual_pg_db>`.)*
 
-Periksa hasil `databases/<nama_db>/baseline/00000000000000_initial_baseline.sql`, pastikan `pg-migrate validate --db=all` lulus, lalu commit ke `main` dan merge ke branch `staging` dan `production`.
+Periksa hasil `databases/<nama_db>/baseline/00000000000000_initial_baseline.sql`, pastikan `pg-migrate validate --db=all` lulus, lalu commit ke `main` dan merge ke branch `development`, `staging`, dan `production`.
 
 ## Langkah 3: Tandai Marker Baseline (TANPA `--apply-sql`)
 
-Jalankan `pg-migrate baseline` **tanpa** flag `--apply-sql` terhadap environment `staging` dan `production` (bisa melalui job Jenkins `database-migrator-service-run` dengan memilih `ACTION=baseline`):
+Jalankan `pg-migrate baseline` **tanpa** flag `--apply-sql` terhadap environment `development`, `staging`, dan `production` (bisa melalui job Jenkins `database-migrator-service-run` dengan memilih `ACTION=baseline`):
 
 ```bash
 pg-migrate baseline --config=databases.yaml --db=all
@@ -53,7 +53,7 @@ Yang dilakukan perintah ini:
 2. Membuat tabel `public.schema_migrations` jika belum ada.
 3. Mencatat 1 baris versi `00000000000000` dengan `service_name = 'baseline'` dan checksum SHA-256 dari file baseline **tanpa mengeksekusi SQL baseline**.
 
-> **Peringatan:** Jangan gunakan `--apply-sql` pada database staging/production existing. Jika dijalankan lagi secara tidak sengaja tanpa `--apply-sql`, perintah ini bersifat *idempotent* (`AlreadyBaselined = true`) selama isi file baseline tidak berubah.
+> **Peringatan:** Jangan gunakan `--apply-sql` pada database existing (termasuk hasil clone produksi). Khusus untuk database `development` yang baru dibuat dan masih benar-benar kosong tanpa tabel, Anda boleh memakai `--apply-sql` sekali di awal untuk membentuk tabel baseline. Jika dijalankan lagi tanpa `--apply-sql`, perintah `baseline` bersifat *idempotent* (`AlreadyBaselined = true`) selama isi file baseline tidak berubah.
 
 ## Langkah 4: Verifikasi
 

@@ -8,7 +8,7 @@ Jika salah satu repository backend Anda masih menggunakan **Jenkins Freestyle Jo
 
 ## Langkah Konfigurasi pada Job Backend
 
-1. Buka konfigurasi Freestyle Job repo backend (misalnya `svc-order-deploy-staging`).
+1. Buka konfigurasi Freestyle Job repo backend (misalnya `svc-order-deploy-development` atau `svc-order-deploy-staging`).
 2. Di bagian **Build Steps**, klik **Add build step** → pilih **Trigger/call builds on other projects**.
 3. Pindahkan build step ini agar berada **SEBELUM** langkah deploy / restart aplikasi (PM2 / Docker / SSH).
 4. Isi konfigurasi step:
@@ -23,11 +23,11 @@ Jika salah satu repository backend Anda masih menggunakan **Jenkins Freestyle Jo
    ACTION=up
    TRIGGERED_BY=${JOB_NAME}#${BUILD_NUMBER}
    ```
-   *(Untuk job production, ubah `TARGET_ENV=production`. Jika ingin membatasi ke database tertentu, ubah `TARGET_DB=db_name` atau daftar dipisah koma).*
+   *(Ubah `TARGET_ENV` menjadi `development`, `staging`, atau `production` sesuai environment job backend. Jika ingin membatasi ke database tertentu, ubah `TARGET_DB=db_name` atau daftar dipisah koma).*
 6. Klik **Save**.
 
 ## Hasil Saat Job Backend Dijalankan (Manual Trigger)
 - Jenkins otomatis memanggil `database-migrator-service-run` terlebih dahulu.
-- Jika ada antrian migrasi di branch `staging`/`production` repo `database-migrator-service`, migrasi dieksekusi sampai tuntas.
+- Jika ada antrian migrasi di branch `development`/`staging`/`production` repo `database-migrator-service`, migrasi dieksekusi sampai tuntas.
 - Jika tidak ada antrian (`0 pending`), `database-migrator-service-run` selesai sukses dalam beberapa detik dan step deploy backend tetap berlanjut seperti biasa.
 - Jika migrasi error (mis. SQL invalid atau melanggar linter), job backend otomatis berhenti sebelum kode baru ter-deploy.

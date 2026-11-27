@@ -3,7 +3,7 @@
 Sistem **Centralized Multi-Database PostgreSQL Migration** untuk mengelola skema pada lingkungan multi-repository backend lintas stack (Node.js, Go, Python, Java, dll.) yang berbagi server PostgreSQL.
 
 Fitur utama:
-- **Pre-deploy terpusat via Jenkins:** Setiap deploy ke `staging` atau `production` memanggil runner migrasi (mengeksekusi file pending, atau selesai sebagai *no-op* jika tidak ada antrian).
+- **Pre-deploy terpusat via Jenkins:** Setiap deploy ke `development`, `staging`, atau `production` memanggil runner migrasi (mengeksekusi file pending, atau selesai sebagai *no-op* jika tidak ada antrian).
 - **Single binary `pg-migrate`:** Dibangun menggunakan Go (`CGO_ENABLED=0`) sehingga mudah dijalankan di CI/CD maupun container.
 - **Multi-database & branch paralel:** Mendukung database existing (`baseline`), registry multi-database (`databases.yaml`), *advisory lock* per database (`pg_try_advisory_lock`), serta *out-of-order execution* (`feat-1`, `feat-2`, dst.).
 
@@ -36,7 +36,7 @@ flowchart TD
     end
 
     subgraph REPO["Central Repo: database-migrator-service"]
-        BR["Branch Target (staging / production)"]
+        BR["Branch Target (development / staging / production)"]
         CFG["Registry: databases.yaml"]
         SQL["Folder SQL: databases/db_name/migrations/"]
         BR --> CFG
@@ -141,7 +141,7 @@ database-migrator-service/
 
 | Perintah | Kapan Dipakai | Yang Dilakukan |
 |---|---|---|
-| `pg-migrate baseline --db=all` *(tanpa `--apply-sql`)* | **Staging & Production** (DB sudah ada tabelnya) | **Tidak** menjalankan SQL; hanya membuat tabel `public.schema_migrations` dan mencatat marker `00000000000000`. |
+| `pg-migrate baseline --db=all` *(tanpa `--apply-sql`)* | **Development, Staging & Production** (DB sudah ada tabelnya) | **Tidak** menjalankan SQL; hanya membuat tabel `public.schema_migrations` dan mencatat marker `00000000000000`. |
 | `pg-migrate baseline --db=all --apply-sql` | **Lokal / Docker baru** (DB masih kosong) | **Menjalankan** SQL baseline untuk membuat tabel awal lalu mencatat marker (otomatis ditolak jika DB sudah punya riwayat migrasi). |
 
 ### A. Menyalakan PostgreSQL Lokal
@@ -242,7 +242,7 @@ Jika ada database baru di server PostgreSQL yang sama (misalnya `billing_db`):
    ```yaml
      - name: billing_db
        database: billing_db
-       # Opsional jika nama DB staging dan production berbeda:
+       # Opsional jika nama DB antar environment (development/staging/production) berbeda:
        # database_env: POSTGRES_DB_BILLING
        # Opsional jika berada di server berbeda:
        # dsn_env: POSTGRES_DSN_BILLING
@@ -254,9 +254,9 @@ Jika ada database baru di server PostgreSQL yang sama (misalnya `billing_db`):
 
 ---
 
-## 5. SOP Adopsi Database Existing (`staging` & `production`)
+## 5. SOP Adopsi Database Existing (`development`, `staging` & `production`)
 
-Karena database staging dan production sudah memiliki tabel eksisting, lakukan langkah berikut **sekali saja** saat awal adopsi:
+Karena database `development`, `staging`, dan `production` umumnya sudah memiliki tabel eksisting (atau merupakan hasil clone dari produksi), lakukan langkah berikut **sekali saja** saat awal adopsi:
 
 ### Langkah 1: Siapkan Role & Default Privileges di PostgreSQL
 Pastikan seluruh aplikasi backend memakai `app_user` (DML only), sedangkan `pg-migrate` memakai `migrator_user` (owner/DDL). Jalankan sekali pada masing-masing database oleh superuser/DBA:
@@ -277,51 +277,62 @@ ALTER DEFAULT PRIVILEGES FOR ROLE migrator_user IN SCHEMA public
 ```bash
 POSTGRES_HOST=pg-prod.internal POSTGRES_USER=migrator_user POSTGRES_PASSWORD=*** ./scripts/dump-baseline.sh db_name
 ```
-Commit hasil `databases/db_name/baseline/00000000000000_initial_baseline.sql` ke branch `main`, lalu merge ke `production` dan `staging`.
+Commit hasil `databases/db_name/baseline/00000000000000_initial_baseline.sql` ke branch `main`, lalu merge ke `development`, `staging`, dan `production`.
 
 ### Langkah 3: Tandai Marker Baseline (TANPA `--apply-sql`)
-Jalankan perintah `baseline` tanpa flag `--apply-sql` di Jenkins (pilih `ACTION = baseline`) atau dari terminal aman ke **staging** dan **production**:
+Jalankan perintah `baseline` tanpa flag `--apply-sql` di Jenkins (pilih `ACTION = baseline`) atau dari terminal aman ke **`development`**, **`staging`**, dan **`production`**:
 ```bash
 pg-migrate baseline --db=all
 ```
 Perintah ini **TIDAK mengeksekusi SQL baseline** — hanya membuat tabel `public.schema_migrations` dan menandai versi `00000000000000` sebagai sudah terpasang. Setelah langkah ini, seluruh perubahan baru cukup diletakkan di folder `migrations/`.
 
+> **Catatan DB `development` Baru/Kosong:** Jika server database `development` benar-benar baru dan masih kosong (belum memiliki tabel sama sekali), Anda dapat memakai `--apply-sql` sekali di awal untuk membentuk skema awal dari file baseline; jika sudah berisi tabel atau hasil clone `production`, **jangan** memakai `--apply-sql`.
+
 ---
 
-## 6. SOP Branching (`main`, `production`, `staging`, `feat-x`)
+## 6. SOP Branching (`main`, `development`, `staging`, `production`, `feat-x`)
 
-Alur branch dirancang agar `feat-1`, `feat-2`, `feat-3` dapat berjalan dan masuk testing secara paralel tanpa saling menyandera:
+Alur branch dirancang agar `feat-1`, `feat-2`, `feat-3` dapat berjalan paralel dari tahap integrasi `development`, QA di `staging`, hingga rilis ke `production` tanpa saling menyandera — serta tetap memungkinkan reset berkala pada `development` dan `staging` agar bersih mendekati `production`:
 
 ```mermaid
 flowchart LR
     MAIN["Branch: main (Sumber Utama)"]
     F1["feat/1 (TS: 09:00)"]
     F2["feat/2 (TS: 14:00)"]
-    STG["Branch: staging (QA & Replika Prod)"]
+    DEV["Branch: development (Integrasi Awal)"]
+    STG["Branch: staging (QA & UAT)"]
     PROD["Branch: production (Live Server)"]
 
     MAIN -->|"1. Branching paralel"| F1
     MAIN -->|"1. Branching paralel"| F2
 
-    F1 -->|"2. Merge untuk QA"| STG
-    F2 -->|"2. Merge untuk QA"| STG
+    F1 -->|"2. Integrasi awal"| DEV
+    F2 -->|"2. Integrasi awal"| DEV
 
-    F2 -->|"3. Lulus QA duluan -> merge ke main"| MAIN
-    MAIN -->|"4. Rilis feat/2 (eksekusi 14:00)"| PROD
+    F1 -->|"3. Masuk QA"| STG
+    F2 -->|"3. Masuk QA"| STG
 
-    F1 -->|"5. Menyusul lulus -> merge ke main"| MAIN
-    MAIN -->|"6. Rilis feat/1 (out-of-order 09:00 aman)"| PROD
+    F2 -->|"4. Lulus QA duluan -> merge ke main"| MAIN
+    MAIN -->|"5. Rilis feat/2 (eksekusi 14:00)"| PROD
 
+    F1 -->|"6. Menyusul lulus -> merge ke main"| MAIN
+    MAIN -->|"7. Rilis feat/1 (out-of-order 09:00 aman)"| PROD
+
+    DEV -. "DILARANG merge dev ke staging" .-x STG
     STG -. "DILARANG merge staging ke production" .-x PROD
+    PROD -. "Reset/timpa berkala agar bersih" .-> DEV
+    PROD -. "Reset/timpa berkala agar bersih" .-> STG
 ```
 
-1. **Selalu buat branch `feat-x` dari `main`** (jangan bercabang dari `staging`!).
-2. **Untuk masuk tahap QA/testing:** merge `feat-x` ke `staging`, lalu deploy via Jenkins.
-3. **Jika ada revisi selama testing di `staging`:** **JANGAN** mengedit file `.sql` yang sudah sempat dieksekusi di `staging`. Buat file migrasi baru di branch `feat-x` yang sama, lalu merge lagi ke `staging`.
-4. **JANGAN PERNAH merge `staging` → `main` atau `staging` → `production`!**
+1. **Selalu buat branch `feat-x` dari `main`** (jangan bercabang dari `development` atau `staging`!).
+2. **Untuk tahap integrasi awal (FE–BE / antar-service):** merge `feat-x` ke `development`, lalu deploy via Jenkins (`TARGET_ENV=development`).
+3. **Untuk tahap QA/UAT:** merge `feat-x` yang sudah siap ke `staging`, lalu deploy via Jenkins (`TARGET_ENV=staging`).
+4. **Jika ada revisi selama di `development` atau `staging`:** **JANGAN** mengedit file `.sql` yang sudah sempat dieksekusi di shared DB (`development` atau `staging`). Buat file migrasi baru (`pg-migrate create`) di branch `feat-x` yang sama, lalu merge lagi ke branch environment terkait.
+5. **DILARANG merge lintas environment (`development` → `staging`, `development` → `main`, `staging` → `main`, `staging` → `production`)!**
    - Ketika `feat-2` lulus QA lebih dulu dari `feat-1`, cukup merge `feat-2` → `main` → `production`.
-   - Saat `feat-1` lulus menyusul nanti, merge `feat-1` → `main` → `production`. Runner akan otomatis mengeksekusi `feat-1` meski timestamp-nya lebih tua dari `feat-2`.
-5. **Backward-Compatibility (Pola Expand–Contract):**
+   - Saat `feat-1` lulus menyusul nanti, merge `feat-1` → `main` → `production`. Runner otomatis mengeksekusi `feat-1` meski timestamp-nya lebih tua dari `feat-2`.
+6. **Reset / Timpa Berkala (`development` & `staging`):** Karena `development` dan `staging` adalah integration branch yang tidak pernah di-merge ke `production`, keduanya aman ditimpa ulang secara berkala dari `production` (reset branch Git + refresh database dari dump `production`, lalu merge ulang hanya `feat/*` yang masih aktif) agar kembali bersih dan dekat dengan kondisi `production`. Panduan langkah demi langkah tersedia di [`docs/operations/04_env-reset-and-refresh.md`](docs/operations/04_env-reset-and-refresh.md).
+7. **Backward-Compatibility (Pola Expand–Contract):**
    - Dilarang langsung `DROP TABLE`, `DROP COLUMN`, `RENAME`, atau `ADD COLUMN ... NOT NULL` tanpa `DEFAULT` sementara masih ada repo backend yang belum update.
    - Lakukan bertahap: tambah kolom baru yang aman (*Expand*) → deploy seluruh repo backend terdampak → baru buat migrasi penghapusan kolom lama (*Contract*) dengan komentar `-- migrate:allow-destructive <alasan>`.
 
@@ -331,8 +342,8 @@ flowchart LR
 
 1. Buat Jenkins Credentials berikut:
    - `git-database-migrator-service-readonly`: akses baca ke repo `database-migrator-service`.
-   - `postgres-host-staging` & `postgres-host-production` (Secret Text): hostname/IP server PostgreSQL.
-   - `postgres-migrator-staging` & `postgres-migrator-production` (Username with password): kredensial `migrator_user`.
+   - `postgres-host-development`, `postgres-host-staging`, & `postgres-host-production` (Secret Text): hostname/IP server PostgreSQL.
+   - `postgres-migrator-development`, `postgres-migrator-staging`, & `postgres-migrator-production` (Username with password): kredensial `migrator_user`.
 2. Buat Pipeline Job terpusat bernama **`database-migrator-service-run`** yang menunjuk ke [`jenkins/Jenkinsfile`](jenkins/Jenkinsfile).
 3. Di setiap repository backend:
    - Untuk Jenkins Pipeline, tambahkan stage pre-deploy dari [`jenkins/backend-pipeline-snippet.groovy`](jenkins/backend-pipeline-snippet.groovy).
@@ -347,5 +358,5 @@ flowchart LR
 | `CHECKSUM_MISMATCH` | File SQL yang sudah pernah dieksekusi di DB diedit ulang | Kembalikan file lama seperti semula, lalu buat file migrasi baru (`pg-migrate create`) untuk perubahannya |
 | `canceling statement due to lock timeout` | Ada transaksi panjang di aplikasi backend yang memegang lock tabel | Ulangi job beberapa saat kemudian, atau gunakan `CREATE INDEX CONCURRENTLY` (`--no-tx`) untuk pembuatan index |
 | `NO_TX_REQUIRED` saat validate | `CREATE INDEX CONCURRENTLY` memakai transaksi default | Tambahkan `-- migrate:transaction false` di header file SQL dan `IF NOT EXISTS` |
-| `APPLIED_IN_DB_NOT_IN_BRANCH` (Warning) | Normal di `staging`: ada fitur lain yang sudah migrate di DB tetapi tidak ada di branch yang dicek | Bukan error; abaikan kecuali terjadi di `production` tanpa alasan jelas |
-| DB `staging` baru di-refresh dari dump `production` | Data `schema_migrations` di staging ikut ter-reset ke posisi production | Cukup jalankan ulang `database-migrator-service-run` (`TARGET_ENV=staging`, `ACTION=up`); runner otomatis menerapkan kembali migrasi fitur aktif di branch `staging` |
+| `APPLIED_IN_DB_NOT_IN_BRANCH` (Warning) | Normal di `development` & `staging`: ada fitur lain yang sudah migrate di DB tetapi tidak ada di branch yang dicek | Bukan error; abaikan kecuali terjadi di `production` tanpa alasan jelas |
+| DB `development` atau `staging` baru ditimpa/refresh dari dump `production` | Data `schema_migrations` di environment target ikut ter-reset ke posisi `production` | Jika hanya me-refresh DB, jalankan ulang `database-migrator-service-run` (`TARGET_ENV=development` atau `staging`, `ACTION=up`); lihat SOP lengkap di [`docs/operations/04_env-reset-and-refresh.md`](docs/operations/04_env-reset-and-refresh.md) |

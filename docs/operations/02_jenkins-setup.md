@@ -8,7 +8,7 @@ Runbook ini menjelaskan cara menyiapkan job Jenkins terpusat **`database-migrato
 - Pada agent Jenkins yang menjalankan job, harus tersedia **salah satu** dari:
   - **Go 1.23+**, atau
   - **Docker** (Jenkinsfile otomatis melakukan fallback build memakai `golang:1.23-alpine`).
-- Akses jaringan dari Jenkins agent ke Git repository dan server PostgreSQL `staging` / `production`.
+- Akses jaringan dari Jenkins agent ke Git repository dan server PostgreSQL `development` / `staging` / `production`.
 
 ## Langkah 1: Buat Jenkins Credentials
 
@@ -17,8 +17,10 @@ Tambahkan credentials berikut di **Manage Jenkins → Credentials**:
 | Credential ID | Tipe | Isi |
 |---|---|---|
 | `git-database-migrator-service-readonly` | Username with password / SSH / Token | Akses baca ke repository Git `database-migrator-service` |
+| `postgres-host-development` | Secret text | Hostname atau IP server PostgreSQL development |
 | `postgres-host-staging` | Secret text | Hostname atau IP server PostgreSQL staging |
 | `postgres-host-production` | Secret text | Hostname atau IP server PostgreSQL production |
+| `postgres-migrator-development` | Username with password | Username (`migrator_user`) & password PostgreSQL development |
 | `postgres-migrator-staging` | Username with password | Username (`migrator_user`) & password PostgreSQL staging |
 | `postgres-migrator-production` | Username with password | Username (`migrator_user`) & password PostgreSQL production |
 
@@ -32,8 +34,8 @@ Pastikan `MIGRATIONS_REPO` dan `MIGRATIONS_REPO_CRED_ID` di [`jenkins/Jenkinsfil
    - **SCM**: `Git`
    - **Repository URL** & **Credentials**: gunakan repo migrasi dan `git-database-migrator-service-readonly`
    - **Script Path**: `jenkins/Jenkinsfile`
-3. Simpan dan jalankan build pertama kali dengan **Build with Parameters** (mis. `TARGET_ENV=staging`, `ACTION=validate`) agar Jenkins mendaftarkan parameter job:
-   - `TARGET_ENV`: `staging` | `production`
+3. Simpan dan jalankan build pertama kali dengan **Build with Parameters** (mis. `TARGET_ENV=development` atau `TARGET_ENV=staging`, `ACTION=validate`) agar Jenkins mendaftarkan parameter job:
+   - `TARGET_ENV`: `development` | `staging` | `production`
    - `TARGET_DB`: `all` atau daftar dipisah koma
    - `ACTION`: `up` | `dry-run` | `status` | `validate` | `baseline`
    - `TRIGGERED_BY`: default `manual` (otomatis terisi saat dipicu job backend)
@@ -41,7 +43,7 @@ Pastikan `MIGRATIONS_REPO` dan `MIGRATIONS_REPO_CRED_ID` di [`jenkins/Jenkinsfil
 
 ## Penjelasan Stage pada `Jenkinsfile`
 
-1. **Resolve Environment & Checkout**: Memetakan `TARGET_ENV` ke branch target (`staging` atau `production`), ID credentials, dan `POSTGRES_SSLMODE` (`disable` untuk staging, `require` untuk production), lalu melakukan `CleanBeforeCheckout` dan mencatat `RESOLVED_GIT_COMMIT`.
+1. **Resolve Environment & Checkout**: Menggunakan `switch (params.TARGET_ENV)` untuk memetakan `development`, `staging`, dan `production` ke branch target, ID credentials masing-masing, serta `POSTGRES_SSLMODE` (`disable` untuk `development` & `staging`, `require` untuk `production`), dan menghentikan build jika `TARGET_ENV` tidak dikenal. Tahap checkout memakai `CleanBeforeCheckout` dan `PruneStaleBranch` agar workspace selalu bersih meskipun branch `development`/`staging` baru saja di-reset dari `production`, lalu mencatat `RESOLVED_GIT_COMMIT`.
 2. **Build `pg-migrate` Runner**: Meng-compile binary statis sementara ke `.bin/pg-migrate` (memakai Go host atau fallback Docker `golang:1.23-alpine`) dan memverifikasi `./.bin/pg-migrate version`.
 3. **Validate SQL & Linter**: Menjalankan `./.bin/pg-migrate validate --config=databases.yaml --db=...` (plus `--strict` bila dicentang).
 4. **Execute Database Action**: Dilewati bila `ACTION == 'validate'`. Mengikat `POSTGRES_HOST`, `POSTGRES_USER`, dan `POSTGRES_PASSWORD` via `withCredentials` lalu menjalankan `up`, `up --dry-run`, `status`, atau `baseline`.

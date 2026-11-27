@@ -13,7 +13,7 @@ stage('Database Migration') {
               wait: true,
               propagate: true,
               parameters: [
-                  string(name: 'TARGET_ENV', value: params.TARGET_ENV), // 'staging' atau 'production'
+                  string(name: 'TARGET_ENV', value: params.TARGET_ENV), // 'development', 'staging', atau 'production'
                   string(name: 'TARGET_DB', value: 'all'),              // atau spesifik, mis. 'db_name'
                   string(name: 'ACTION', value: 'up'),
                   string(name: 'TRIGGERED_BY', value: "${env.JOB_NAME}#${env.BUILD_NUMBER}")
@@ -42,13 +42,13 @@ Ikuti panduan [`jenkins/backend-freestyle-guide.md`](../../jenkins/backend-frees
    TRIGGERED_BY=${JOB_NAME}#${BUILD_NUMBER}
    ```
 
-   *(Ganti `TARGET_ENV=production` untuk job produksi, dan ubah `TARGET_DB` jika ingin membatasi ke database tertentu saja.)*
+   *(Ganti `TARGET_ENV=development`, `staging`, atau `production` sesuai environment job backend, dan ubah `TARGET_DB` jika ingin membatasi ke database tertentu saja.)*
 
 ## Perilaku di Runtime
 
 | Kondisi | Perilaku Jenkins |
 |---|---|
-| Ada file migrasi pending di branch `staging`/`production` | `database-migrator-service-run` mem-build `.bin/pg-migrate`, memvalidasi linter, mengambil advisory lock, menjalankan SQL pending, lalu deploy backend berlanjut |
+| Ada file migrasi pending di branch `development`/`staging`/`production` | `database-migrator-service-run` mem-build `.bin/pg-migrate`, memvalidasi linter, mengambil advisory lock, menjalankan SQL pending, lalu deploy backend berlanjut |
 | Tidak ada migrasi baru (`0 pending`) | Job selesai *no-op* (`exit 0`) dan deploy backend tetap berlanjut |
 | Migrasi gagal (linter error, checksum mismatch, SQL error, lock timeout) | Job gagal dan build backend otomatis dihentikan sebelum kode baru naik |
 | Dua atau lebih repo backend deploy bersamaan | `disableConcurrentBuilds` di Jenkins dan `pg_try_advisory_lock` di PostgreSQL menjaga eksekusi tetap terurut dan aman |

@@ -379,7 +379,7 @@ func cmdCreate(args []string) error {
 		sb.WriteString("-- migrate:transaction true\n")
 	}
 	sb.WriteString(fmt.Sprintf("-- Database: %s\n", selected[0].Name))
-	sb.WriteString("-- Catatan: file yang sudah masuk staging/production TIDAK BOLEH diedit; buat file baru jika ada revisi.\n\n")
+	sb.WriteString("-- Catatan: file yang sudah masuk development/staging/production TIDAK BOLEH diedit; buat file baru jika ada revisi.\n\n")
 	if *noTx {
 		sb.WriteString("-- Contoh non-transactional DDL PostgreSQL:\n-- CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_contoh ON public.nama_tabel (kolom);\n")
 	} else {

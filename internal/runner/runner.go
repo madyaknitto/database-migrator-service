@@ -328,7 +328,7 @@ func Up(ctx context.Context, connect Connector, opts UpOptions) (UpResult, error
 		}
 	}
 
-	// 7. Deteksi migrasi yang tercatat di DB namun tidak ada di branch saat ini (misal fitur lain di staging)
+	// 7. Deteksi migrasi yang tercatat di DB namun tidak ada di branch saat ini (misal fitur lain di development/staging)
 	for _, rec := range appliedList {
 		if _, existsLocally := localMap[rec.Version]; !existsLocally {
 			if baselineFile == nil && strings.HasPrefix(rec.Version, "00000000000000") {
